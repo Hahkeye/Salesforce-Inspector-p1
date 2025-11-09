@@ -719,8 +719,8 @@ class AllDataBoxUsers extends React.PureComponent {
     }
 
     const escapedUserQuery = userQuery.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    const fullQuerySelect = "select Id, Name, Email, Username, UserRole.Name, Alias, LocaleSidKey, LanguageLocaleKey, IsActive, ProfileId, Profile.Name";
-    const minimalQuerySelect = "select Id, Name, Email, Username, UserRole.Name, Alias, LocaleSidKey, LanguageLocaleKey, IsActive";
+    const fullQuerySelect = "select Id, Name, Email, Username, UserRole.Name, Alias, LocaleSidKey, LanguageLocaleKey, IsActive, ProfileId, Profile.Name,Bypass_Automation__c,Bypass_Triggers__c,Bypass_Validation_Rules__c";
+    const minimalQuerySelect = "select Id, Name, Email, Username, UserRole.Name, Alias, LocaleSidKey, LanguageLocaleKey, IsActive,Bypass_Automation__c,Bypass_Triggers__c,Bypass_Validation_Rules__c";
     const queryFrom = "from User where (username like '%" + escapedUserQuery + "%' or name like '%" + escapedUserQuery + "%') order by IsActive DESC, LastLoginDate limit 100";
     const compositeQuery = {
       "compositeRequest": [
@@ -750,6 +750,8 @@ class AllDataBoxUsers extends React.PureComponent {
 
   }
 
+  
+
   async onDataSelect(userRecord) {
     if (userRecord && userRecord.Id) {
       await this.setState({selectedUserId: userRecord.Id, selectedUser: null});
@@ -765,10 +767,10 @@ class AllDataBoxUsers extends React.PureComponent {
       return;
     }
     //Optimistically attempt broad query (fullQuery) and fall back to minimalQuery to ensure some data is returned in most cases (e.g. profile cannot be queried by community users)
-    const fullQuerySelect = "SELECT Id, Name, Email, Username, UserRole.Name, Alias, LocaleSidKey, LanguageLocaleKey, IsActive, FederationIdentifier, ProfileId, Profile.Name, ContactId, IsPortalEnabled, UserPreferencesUserDebugModePref";
+    const fullQuerySelect = "SELECT Id, Name, Email, Username, UserRole.Name, Alias, LocaleSidKey, LanguageLocaleKey, IsActive, FederationIdentifier, ProfileId, Profile.Name, ContactId, IsPortalEnabled, UserPreferencesUserDebugModePref,,Bypass_Automation__c,Bypass_Triggers__c,Bypass_Validation_Rules__c";
     //TODO implement a try catch to remove non existing fields ProfileId or IsPortalEnabled (experience is not enabled)
-    const mediumQuerySelect = "SELECT Id, Name, Email, Username, UserRole.Name, Alias, LocaleSidKey, LanguageLocaleKey, IsActive, FederationIdentifier, ProfileId, Profile.Name, ContactId, UserPreferencesUserDebugModePref";
-    const minimalQuerySelect = "SELECT Id, Name, Email, Username, UserRole.Name, Alias, LocaleSidKey, LanguageLocaleKey, IsActive, FederationIdentifier, ContactId, UserPreferencesUserDebugModePref";
+    const mediumQuerySelect = "SELECT Id, Name, Email, Username, UserRole.Name, Alias, LocaleSidKey, LanguageLocaleKey, IsActive, FederationIdentifier, ProfileId, Profile.Name, ContactId, UserPreferencesUserDebugModePref,,Bypass_Automation__c,Bypass_Triggers__c,Bypass_Validation_Rules__c";
+    const minimalQuerySelect = "SELECT Id, Name, Email, Username, UserRole.Name, Alias, LocaleSidKey, LanguageLocaleKey, IsActive, FederationIdentifier, ContactId, UserPreferencesUserDebugModePref,Bypass_Automation__c,Bypass_Triggers__c,Bypass_Validation_Rules__c";
     const queryFrom = "FROM User WHERE Id='" + selectedUserId + "' LIMIT 1";
     const compositeQuery = {
       "compositeRequest": [
@@ -1407,9 +1409,10 @@ class UserDetails extends React.PureComponent {
     super(props);
     this.sfHost = props.sfHost;
     this.enableDebugLog = this.enableDebugLog.bind(this);
+    this.toggleBypasses = this.toggleBypasses.bind(this);
     this.toggleDisplay = this.toggleDisplay.bind(this);
     this.onSelectLanguage = this.onSelectLanguage.bind(this);
-    this.state = {};
+    this.state = {user: this.props.user};
   }
 
   openUrlInIncognito(targetUrl) {
@@ -1420,6 +1423,23 @@ class UserDetails extends React.PureComponent {
     });
   }
 
+  async toggleBypasses(){
+    let {user} = this.state;
+    // console.log(user);
+    let bypasesPayload = {
+      Bypass_Automation__c: !user.Bypass_Automation__c,
+      Bypass_Triggers__c: !user.Bypass_Triggers__c,
+      Bypass_Validation_Rules__c: !user.Bypass_Validation_Rules__c
+    }
+    try{
+      await sfConn.rest("/services/data/v" + apiVersion + "/sobjects/User/" + user.Id, {method: "PATCH", body: bypasesPayload}).then((res)=>{
+        this.setState({user: {...user,...bypasesPayload}});
+      });
+    } catch (err) {
+      console.error("Unable to toggle bypasses");
+    }
+    
+  }
   async enableDebugLog() {
 
     let {user} = this.props;
@@ -1630,7 +1650,10 @@ class UserDetails extends React.PureComponent {
   }
 
   render() {
-    let {user, linkTarget} = this.props;
+    let {linkTarget} = this.props;
+    let {user} = this.state;
+
+    
     return (
       h("div", {className: "all-data-box-inner"},
         h("div", {className: "all-data-box-data slds-m-bottom_xx-small"},
@@ -1675,6 +1698,10 @@ class UserDetails extends React.PureComponent {
                     : h("em", {className: "inactive"}, "unknown")
                 )
               ),
+               h("tr", {},
+                h("th", {}, "Bypasses:"),
+                h("td", {className: "oneliner"}, user.Bypass_Automation__c == true ? "✅" : "❌")
+              ),
               user.UserRole ? h("tr", {},
                 h("th", {}, "Role:"),
                 h("td", {className: "oneliner"}, user.UserRole.Name)
@@ -1702,6 +1729,7 @@ class UserDetails extends React.PureComponent {
           //TODO check for using icons instead of text https://www.lightningdesignsystem.com/components/button-groups/#Button-Icon-Group
           h("div", {className: "user-buttons justify-center slds-button-group top-space", role: "group"},
             h("a", {href: "#", id: "enableDebugLog", disabled: false, onClick: this.enableDebugLog, className: "slds-button slds-button_neutral", title: "Enable user debug log"}, "Enable Logs"),
+            h("a", {href: "#", id: "toggleBypasse", disabled: false, onClick: this.toggleBypasses, className: "slds-button slds-button_neutral", title: "Toggle Bypasses",style: user.Bypass_Automation__c == true? {boxShadow: "0px 0px 10px rgba(136, 204, 71, 0.5)"}:{}}, "Toggle Bypasses"),
             h("div", {ref: "logButtonMenu", className: "slds-dropdown-trigger slds-dropdown-trigger_click slds-button_last"},
               h("button", {className: "slds-button slds-button_icon slds-button_icon-border-filled", onMouseEnter: () => this.toggleLogMenu(), title: "Show options"},
                 h("svg", {className: "slds-button__icon"},
